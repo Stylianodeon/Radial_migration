@@ -277,6 +277,7 @@ void InitialConditions3D::write_initial_conditions(const std::string& filename, 
     std::cout << "Generated " << N_samples << " 3D warm-disc initial conditions in " << filename << "\n";             
 }
 
+/*
 int main()
 {
    
@@ -292,3 +293,4 @@ int main()
     
     return 0;
 }
+*/

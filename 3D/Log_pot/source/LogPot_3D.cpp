@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <algorithm>
+#include <stdexcept>
 
 #include "LogPot_3D.h"
 
@@ -241,6 +242,57 @@ Vec3 total_acceleration_3D(const Vec3& pos, double sim_time, bool use_pert)
     return {a.x + asp.x, a.y + asp.y, a.z + asp.z};
 }
 
+// ======================================================
+// Initial-condition file reader
+// ======================================================
+struct InitialStar3D
+{
+    int id;
+
+    double R;
+    double phi;
+    double z;
+
+    double v_R;
+    double v_phi;
+    double v_z;
+
+    double Lz;
+    double Rg;
+
+    Vec3 pos;
+    Vec3 vel;
+};
+
+std::vector<InitialStar3D> read_initial_conditions_3D(const std::string& filename, int max_stars)
+{
+    std::ifstream in(filename);
+
+    std::vector<InitialStar3D> stars;
+    std::string line;
+
+    while (std::getline(in, line))
+    {
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        std::istringstream iss(line);
+        InitialStar3D star;
+
+        double x, y, z_cart;
+        double vx, vy, vz_cart;
+
+        iss >> star.id >> star.R >> star.phi >> star.z >> star.v_R >> star.v_phi >> star.v_z 
+            >> star.Lz >> star.Rg >> x >> y >> z_cart >> vx >> vy >> vz_cart;
+
+        star.pos = {x, y, z_cart};
+        star.vel = {vx, vy, vz_cart};
+
+        stars.push_back(star);
+    }
+    return stars;
+}
+
 
 // ======================================================
 // Integrators
@@ -421,8 +473,7 @@ double vertical_action(const Vec3& pos, const Vec3& vel)
 // ======================================================
 // Orbit output
 // ======================================================
-void simulate_trajectory(Vec3& orbit_pos, Vec3& orbit_vel, const std::string& basename,
-                         double& total_time, double& dt, bool use_pert)
+void simulate_trajectory(Vec3& orbit_pos, Vec3& orbit_vel, const std::string& basename, double& total_time, double& dt, bool use_pert)                   
 {
     std::ofstream trajectory_file(basename + "_position.dat");
     std::ofstream parameters_file(basename + "_parameters.dat");
@@ -558,49 +609,202 @@ void simulate_trajectory(Vec3& orbit_pos, Vec3& orbit_vel, const std::string& ba
     spiral_file.close();
 }
 
-int main()
+// ======================================================
+// Population summary output
+// ======================================================
+void simulate_population_summary_3D(std::vector<InitialStar3D>& stars, double total_time, double dt, bool use_pert, std::string& output_filename)                                   
+{
+    std::ofstream out(output_filename);
+    out << "# id R0 Rf Rg0 Rgf Lz0 Lzf dLz dRg "
+        << "E0 Ef dE EJ0 EJf dEJ "
+        << "Erand0 Erandf dErand ER0 ERf dER Ez0 Ezf dEz "
+        << "JR0 JRf dJR Jz0 Jzf dJz "
+        << "z0 zf vz0 vzf\n";
+
+    const int steps = static_cast<int>(total_time / dt);
+    const int progress_interval = std::max(1, static_cast<int>(stars.size()) / 20);
+        
+    double sum_dLz = 0.0;
+    double sum_dRg = 0.0;
+    double sum_dJR = 0.0;
+    double sum_dJz = 0.0;
+    double sum_dLz2 = 0.0;
+
+    for (size_t n = 0; n < stars.size(); n++)
+    {
+        Vec3 pos = stars[n].pos;
+        Vec3 vel = stars[n].vel;
+
+        const double R0  = std::hypot(pos.x, pos.y);
+        const double z0  = pos.z;
+        const double vz0 = vel.z;
+
+        const double Lz0 = angular_momentum_z(pos, vel);
+        const double Rg0 = Lz0 / v_c;
+
+        const double E0  = total_energy_3D(pos, vel, 0.0, use_pert);
+        const double EJ0 = jacobi_integral_3D(pos, vel, 0.0, use_pert);
+
+        const double Erand0 = random_energy(pos, vel);
+        const double ER0    = radial_random_energy(pos, vel);
+        const double Ez0    = vertical_energy(pos, vel);
+        const double JR0    = radial_action(pos, vel);
+        const double Jz0    = vertical_action(pos, vel);
+
+        for (int i = 0; i < steps; i++)
+        {
+            const double sim_time = static_cast<double>(i) * dt;
+            Leapfrog_integrator_3D(pos, vel, dt, sim_time, use_pert);
+        }
+
+        const double Rf  = std::hypot(pos.x, pos.y);
+        const double zf  = pos.z;
+        const double vzf = vel.z;
+
+        const double Lzf = angular_momentum_z(pos, vel);
+        const double Rgf = Lzf / v_c;
+
+        const double Ef  = total_energy_3D(pos, vel, total_time, use_pert);
+        const double EJf = jacobi_integral_3D(pos, vel, total_time, use_pert);
+
+        const double Erandf = random_energy(pos, vel);
+        const double ERf    = radial_random_energy(pos, vel);
+        const double Ezf    = vertical_energy(pos, vel);
+        const double JRf    = radial_action(pos, vel);
+        const double Jzf    = vertical_action(pos, vel);
+
+        const double dLz    = Lzf - Lz0;
+        const double dRg    = Rgf - Rg0;
+        const double dE     = Ef - E0;
+        const double dEJ    = EJf - EJ0;
+        const double dErand = Erandf - Erand0;
+        const double dER    = ERf - ER0;
+        const double dEz    = Ezf - Ez0;
+        const double dJR    = JRf - JR0;
+        const double dJz    = Jzf - Jz0;
+
+        out << std::setprecision(10)
+            << stars[n].id << " "
+            << R0 << " " << Rf << " "
+            << Rg0 << " " << Rgf << " "
+            << Lz0 << " " << Lzf << " "
+            << dLz << " " << dRg << " "
+            << E0 << " " << Ef << " " << dE << " "
+            << EJ0 << " " << EJf << " " << dEJ << " "
+            << Erand0 << " " << Erandf << " " << dErand << " "
+            << ER0 << " " << ERf << " " << dER << " "
+            << Ez0 << " " << Ezf << " " << dEz << " "
+            << JR0 << " " << JRf << " " << dJR << " "
+            << Jz0 << " " << Jzf << " " << dJz << " "
+            << z0 << " " << zf << " "
+            << vz0 << " " << vzf << "\n";
+
+        sum_dLz  += dLz;
+        sum_dRg  += dRg;
+        sum_dJR  += dJR;
+        sum_dJz  += dJz;
+        sum_dLz2 += dLz * dLz;
+
+        if (n % progress_interval == 0)
+        {
+            std::cout << "Integrated " << n << " / " << stars.size() << " stars\n";           
+        }
+    }
+
+    const double N = static_cast<double>(stars.size());
+
+    if (N > 0.0)
+    {
+        std::cout << "Mean dLz = " << sum_dLz / N << "\n";
+        std::cout << "RMS dLz  = " << std::sqrt(sum_dLz2 / N) << "\n";
+        std::cout << "Mean dRg = " << sum_dRg / N << "\n";
+        std::cout << "Mean dJR = " << sum_dJR / N << "\n";
+        std::cout << "Mean dJz = " << sum_dJz / N << "\n";
+    }
+
+    std::cout << "Population summary written to " << output_filename << "\n";           
+}
+
+int main(int argc, char** argv)
 {
     double total_time = 4000.0; // Myr
     double dt = 0.01;          // Myr
     bool use_pert = true;
 
-    std::cout << "Running 3D logarithmic-potential orbit tests.\n";
-    std::cout << "v_c = " << v_c << ", q = " << q << "\n";
-    std::cout << "use_pert = " << std::boolalpha << use_pert
-              << ", m = " << m
-              << ", R_CR = " << R_CR
-              << ", omega_p = " << omega_p
-              << ", pert_strength = " << pert_strength
-              << ", spiral_z_scale = " << spiral_z_scale << "\n";
+    std::string initial_conditions_file = "DF_initial_conditions_3D.dat";
+    std::string output_file = "deltaLz_from_DF_3D.dat";
 
-    vector<Cyl> initial_pos =
+    // -1 means use all stars from the initial-condition file.
+    int max_stars = -1;
+
+    for (int i = 1; i < argc; i++)
     {
-        {10.0, 0.0,      0.10},
-        {10.0, PI / 4.0, 0.20},
-        {8.0,  PI / 2.0, 0.15},
-        {12.0, PI,       0.30}
-    };
+        std::string arg = argv[i];
 
-    for (size_t i = 0; i < initial_pos.size(); i++)
-    {
-        Cyl pos_cyl = initial_pos[i];
-
-        const double v_phi = 0.98 * v_c;
-        const double v_R   = 0.02 * v_c;
-        const double v_z   = 0.02 * v_c;
-
-        Cyl vel_cyl = {v_R, v_phi, v_z};
-
-        Vec3 pos = cyl_to_cart(pos_cyl);
-        Vec3 vel = cyl_to_cart_vel(pos_cyl, vel_cyl);
-
-        std::ostringstream basename;
-        basename << "orbit3D_" << i;
-
-        simulate_trajectory(pos, vel, basename.str(), total_time, dt, use_pert);
+        if (arg == "-pert")
+        {
+            use_pert = true;
+        }
+        else if (arg == "-no_pert")
+        {
+            use_pert = false;
+        }
+        else if (arg == "-n" && i + 1 < argc)
+        {
+            max_stars = std::stoi(argv[++i]);
+        }
+        else if (arg == "-dt" && i + 1 < argc)
+        {
+            dt = std::stod(argv[++i]);
+        }
+        else if (arg == "-t" && i + 1 < argc)
+        {
+            total_time = std::stod(argv[++i]);
+        }
+        else if (arg == "-ic" && i + 1 < argc)
+        {
+            initial_conditions_file = argv[++i];
+        }
+        else if (arg == "-out" && i + 1 < argc)
+        {
+            output_file = argv[++i];
+        }
+        else
+        {
+            std::cerr << "Unknown or incomplete option: " << arg << "\n";
+            std::cerr << "Usage: ./LogPotExec [-pert|-no_pert] [-n N] [-dt DT] [-t T] [-ic FILE] [-out FILE]\n";
+            return 1;
+        }
     }
 
-    std::cout << "Finished all 3D orbit tests.\n";
+    try
+    {
+        std::cout << "Running 3D logarithmic-potential population integration.\n";
+        std::cout << "Reading initial conditions from "
+                  << initial_conditions_file << "\n";
+        std::cout << "Output summary file: " << output_file << "\n";
+        std::cout << "total_time = " << total_time
+                  << ", dt = " << dt << "\n";
+        std::cout << "v_c = " << v_c
+                  << ", q = " << q << "\n";
+        std::cout << "use_pert = " << std::boolalpha << use_pert
+                  << ", m = " << m
+                  << ", R_CR = " << R_CR
+                  << ", omega_p = " << omega_p
+                  << ", pert_strength = " << pert_strength
+                  << ", spiral_z_scale = " << spiral_z_scale << "\n";
 
+        std::vector<InitialStar3D> stars = read_initial_conditions_3D(initial_conditions_file, max_stars);
+        std::cout << "Loaded " << stars.size() << " stars from initial-conditions file.\n";
+                  
+
+        simulate_population_summary_3D(stars, total_time, dt, use_pert, output_file);
+        std::cout << "Finished 3D population integration.\n";
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
     return 0;
 }
