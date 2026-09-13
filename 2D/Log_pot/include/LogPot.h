@@ -39,8 +39,6 @@ void Leapfrog_integrator_perturbed(Vec2&, Vec2&, const double&, const double&);
 double angular_momentum(const Vec2&, const Vec2&);
 double kinetic_energy(const Vec2&);
 Vec2 total_acceleration(const Vec2&, const double&);
-double kinetic_energy_inertial_frame(const Vec2&, const Vec2&);
-double angular_momentum_inertial_frame(const Vec2&, const Vec2&);
 double jacobi_integral(const Vec2&, const Vec2&, const double&, const double&);
 double effective_potential_time(const Vec2&, const bool&, double);
 Vec2   effective_potential_gradient_time(const Vec2&, const bool&, double, double);

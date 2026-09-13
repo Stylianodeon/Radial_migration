@@ -95,10 +95,10 @@ double effective_potential(const Vec2 &cart_pos, const bool &use_pert)
         // pert_energy = (Phi_S * pert_strength) * cos(m * cyl_pos.phi);
     }
 
-    // Rotating-frame centrifugal term
+    // Phi_eff = Phi - 0.5 * omega_p^2 * R^2 (Binney & Tremaine, eq. 3.114).
     double cent_term = 0.5 * omega_p * omega_p * (cyl_pos.R * cyl_pos.R);
 
-    return log_pot_energy + pert_energy + cent_term;
+    return log_pot_energy + pert_energy - cent_term;
 }
 
 Vec2 effective_potential_gradient(const Vec2 &cart_pos, const bool &use_pert)
@@ -373,7 +373,6 @@ void Leapfrog_integrator_perturbed(Vec2 &pos, Vec2 &vel, const double &dt, const
     pos.y += 0.5 * dt * vel.y;
 }
 
-// Quantity determination
 double angular_momentum(const Vec2 &pos, const Vec2 &vel)
 {
     return pos.x * vel.y - pos.y * vel.x;
@@ -382,19 +381,6 @@ double angular_momentum(const Vec2 &pos, const Vec2 &vel)
 double kinetic_energy(const Vec2 &vel)
 {
     return 0.5 * (vel.x * vel.x + vel.y * vel.y);
-}
-
-// inertial velocity from rotating frame: v_inert = v_rot + Ω_p × r
-double kinetic_energy_inertial_frame(const Vec2 &pos, const Vec2 &vel_rotating)
-{
-    Vec2 v_inert{ vel_rotating.x - omega_p * pos.y, vel_rotating.y + omega_p * pos.x };
-    return 0.5 * (v_inert.x * v_inert.x + v_inert.y * v_inert.y);
-}
-
-double angular_momentum_inertial_frame(const Vec2 &pos, const Vec2 &vel_rotating)
-{
-    Vec2 v_inert{ vel_rotating.x - omega_p * pos.y, vel_rotating.y + omega_p * pos.x };
-    return pos.x * v_inert.y - pos.y * v_inert.x;
 }
 
 double jacobi_integral(const Vec2 &cart_pos, const Vec2 &cart_vel, const double &sim_time, const double &total_time)
@@ -436,7 +422,7 @@ double effective_potential_time(const Vec2 &cart_pos, const bool &use_pert, doub
 
     double cent_term = 0.5 * omega_p * omega_p * (cyl_pos.R * cyl_pos.R);
 
-    return log_pot_energy + pert_energy + cent_term;
+    return log_pot_energy + pert_energy - cent_term;
 }
 
 Vec2 effective_potential_gradient_time(const Vec2 &cart_pos, const bool &use_pert, double sim_time, double total_time)
@@ -449,12 +435,9 @@ Vec2 effective_potential_gradient_time(const Vec2 &cart_pos, const bool &use_per
     Vec2 dy_neg = {cart_pos.x, cart_pos.y - delta};
 
     Vec2 grad;
-    grad.x = (effective_potential_time(dx_pos, use_pert, sim_time) -
-              effective_potential_time(dx_neg, use_pert, sim_time)) / (2.0 * delta);
-
-    grad.y = (effective_potential_time(dy_pos, use_pert, sim_time) - 
-              effective_potential_time(dy_neg, use_pert, sim_time)) / (2.0 * delta);
-
+    grad.x = (effective_potential_time(dx_pos, use_pert, sim_time) - effective_potential_time(dx_neg, use_pert, sim_time)) / (2.0 * delta);
+    grad.y = (effective_potential_time(dy_pos, use_pert, sim_time) -  effective_potential_time(dy_neg, use_pert, sim_time)) / (2.0 * delta);
+              
     return grad;
 }
 
@@ -489,11 +472,9 @@ void simulate_trajectory(Vec2 &orbit_pos, Vec2 &orbit_vel, const std::string &ba
         Vec2 log_acc = LogPot_acc(orbit_pos);
         Vec2 tot_acc = perturb_active ? total_acceleration(orbit_pos, sim_time) : log_acc;
 
-        // Energies & Momenta
-        double Lz = perturb_active ? angular_momentum_inertial_frame(orbit_pos, orbit_vel) : angular_momentum(orbit_pos, orbit_vel);
-
-        double KE = perturb_active ? kinetic_energy_inertial_frame(orbit_pos, orbit_vel) : kinetic_energy(orbit_vel);
-
+        // Both integrators evolve inertial velocities
+        double Lz = angular_momentum(orbit_pos, orbit_vel);
+        double KE = kinetic_energy(orbit_vel);
         double PE = perturb_active ? total_PE_time(orbit_pos, sim_time) : potential_energy_unperturbed(orbit_pos);
 
         double E  = KE + PE;
