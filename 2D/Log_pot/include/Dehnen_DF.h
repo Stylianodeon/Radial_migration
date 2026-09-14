@@ -8,10 +8,15 @@ struct SampleOrbit
     double R; double L; double v_R; double v_phi;
 };
 
+// Prograde Shu DF in the logarithmic potential; Sigma and sigma_R are
+// input profiles at guiding radius, not exact realized profiles at physical R.
 class WarmDiskDF 
 {
 public:
-    WarmDiskDF(int N_R_grid = 30000, double R_min = 2.0, double R_max = 20.0);  // N_R_grid is the resolution for CDF. It is not equal to the number of samples
+    // Bounds truncate guiding radius (Lz/vc), preserving equilibrium.
+    // N_R_grid controls CDF resolution, not the number of sampled stars.
+    WarmDiskDF(int N_R_grid = 30000, double R_min = 2.0, double R_max = 20.0);
+    // Samples guiding radius Rg; sample_orbit returns instantaneous radius R.
     double sample_R(std::mt19937& gen);
     SampleOrbit sample_orbit(std::mt19937& gen);
     

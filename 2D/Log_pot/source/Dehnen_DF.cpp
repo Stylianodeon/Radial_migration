@@ -14,32 +14,52 @@ double WarmDiskDF::Sigma(double R) const
     return Sigma_o * std::exp(-R / R_o);
 }
 
-void WarmDiskDF::precompute_cdf() 
+void WarmDiskDF::precompute_cdf()
 {
-    if (N_grid < 2) 
-    {
-        throw std::runtime_error("WarmDiskDF: N_grid must be >= 2");
-    }
-    if (!(R_max > R_min)) 
-    {
-        throw std::runtime_error("WarmDiskDF: require R_max > R_min");
-    }
+    if (N_grid < 2 || !std::isfinite(R_min) || !std::isfinite(R_max) || R_min <= 0.0 || R_max <= R_min)
+        throw std::runtime_error("WarmDiskDF: require N_grid >= 2 and 0 < Rg_min < Rg_max");
+
     R_vals.resize(N_grid);
     CDF_vals.resize(N_grid);
-    double dR = (R_max - R_min) / (N_grid - 1);
+    const double dR = (R_max - R_min) / (N_grid - 1);
     double total = 0.0;
-
-    for (int i = 0; i < N_grid; i++) 
+    double previous_weight = 0.0;
+    for (int i = 0; i < N_grid; i++)
     {
-        double R = R_min + i * dR;
-        R_vals[i] = R;
+        const double Rg = R_min + i * dR;
+        R_vals[i] = Rg;
+        const double sigma = sigma_R(Rg);
+        const long double beta = (static_cast<long double>(v_c) / sigma) * (v_c / sigma);
 
-        // Shu: weight ∝ R * Σ(R)
-        double weight = R * Sigma(R);
-        total += weight;
+        if (!(sigma > 0.0) || !std::isfinite(beta) || beta <= 1.0L)
+        {
+            throw std::runtime_error("WarmDiskDF: the logarithmic Shu sampler requires 0 < sigma_R(Rg) < vc");
+        }
+        // Shu f(E,Lz) = [2 Omega/kappa] Sigma(Rg)/(2 pi sigma^2) * exp[-(E-Ec(Lz))/sigma^2], for prograde Lz.           
+        const long double shape = (beta - 1.0L) / 2.0L;
+        const long double log_I = beta / 2.0L - std::log(2.0L) + std::lgamma(shape) - shape * std::log(beta / 2.0L);                       
+        const double weight = static_cast<double>(Rg * Sigma(Rg) * std::exp(log_I) / sigma);
+
+        if (!std::isfinite(weight) || weight <= 0.0)
+        {
+            throw std::runtime_error("WarmDiskDF: invalid guiding-radius weight");
+        }
+
+        if (i > 0) 
+        {
+            total += 0.5 * (previous_weight + weight) * dR;
+        }
         CDF_vals[i] = total;
+        previous_weight = weight;
     }
-    for (double& v : CDF_vals) v /= total;
+    if (!std::isfinite(total) || total <= 0.0)
+    {
+        throw std::runtime_error("WarmDiskDF: invalid CDF normalization");
+    }
+    for (double& value : CDF_vals) 
+    {
+        value /= total;
+    }
 }
 
 double WarmDiskDF::sample_R(std::mt19937& gen) 
@@ -99,50 +119,25 @@ double WarmDiskDF::sigma_R(double R) const
 
 SampleOrbit WarmDiskDF::sample_orbit(std::mt19937& gen)
 {
-    /*local epicyclic sampler 
-    v_R ~ N(0, σ_R)
-    v_φ ~ N(<v_φ>, σ_φ) with  σ_φ^2 ≈ (κ^2 / 4Ω^2) σ_R^2
-    <v_φ> = v_c - v_a,  v_a ≈ (σ_R^2 / 2 v_c) * [ -d ln Σ/d ln R - d ln σ_R^2/d ln R - (1 - σ_φ^2/σ_R^2) ]   */
+    const double Rg = sample_R(gen);
+    const double sigma = sigma_R(Rg);
+    const double beta = (v_c / sigma) * (v_c / sigma);
 
-    //pick radius from your Σ-weighted CDF
-    double R = sample_R(gen);
-    if (!std::isfinite(R) || R <= 0.0) R = std::max(1e-6, R);
-
-
-    const double vc    = v_c;         
-    const double Om    = Omega(R);    
-    const double kap   = kappa(R);   
-
-    const double sR    = sigma_R(R);                      // target σ_R(R)
-    const double sphi  = sR * (kap / (2.0 * Om));         // epicyclic: σ_φ = σ_R * κ / (2Ω)
-    const double sR2   = sR * sR;
-    const double sphi2 = sphi * sphi;
-
-    //gradients for asymmetric drift 
-    // Σ(R) = Σ0 e^{-R/R_o}          -> d ln Σ / d ln R = - R / R_o
-    // σ_R(R) = σ0 e^{-R/R_σ}       -> d ln σ_R^2 / d ln R = - 2 R / R_σ
-    const double dlnSigma_dlnR   = - R / R_o;
-    const double dlnsR2_dlnR     = - 2.0 * R / R_sigma;
-
-    //asymmetric drift 
-    const double bracket = -dlnSigma_dlnR - dlnsR2_dlnR - (1.0 - sphi2 / sR2);
-    double v_a = 0.5 * sR2 / std::max(1e-12, vc) * bracket;
-
-    const double v_a_max = 0.5 * vc;                 
-    if (!std::isfinite(v_a)) v_a = 0.0;
-    v_a = std::clamp(v_a, 0.0, v_a_max);
-
-    const double mean_vphi = vc - v_a;
-
-    std::normal_distribution<> nR(0.0,  sR);
-    std::normal_distribution<> nP(mean_vphi, sphi);
-
-    double v_R   = nR(gen);
-    double v_phi = nP(gen);
-
-    double L = R * v_phi;
-
-    return { R, L, v_R, v_phi };
+    // At fixed Lz=vc*Rg, vR is Gaussian and independent of R. For the
+    // logarithmic potential, u=(Rg/R)^2 has an exact gamma distribution:
+    // p(u|Rg) proportional to u^((beta-3)/2) exp(-beta*u/2).
+    std::gamma_distribution<double> radial_ratio((beta - 1.0) / 2.0, 2.0 / beta);
+    std::normal_distribution<double> radial_velocity(0.0, sigma);
+    const double u = radial_ratio(gen);
+    if (!std::isfinite(u) || u <= 0.0)
+    {
+        throw std::runtime_error("WarmDiskDF: invalid gamma sample");
+    }
+    const double R = Rg / std::sqrt(u);
+    const double L = L_circ(Rg);
+    const double v_R = radial_velocity(gen);
+    const double v_phi = L / R;
+    return {R, L, v_R, v_phi};
 }
 
 double WarmDiskDF::kappa(double R) const
@@ -150,11 +145,10 @@ double WarmDiskDF::kappa(double R) const
     return std::sqrt(2.0) * Omega(R);
 }
 
-/*
+#ifdef BUILD_SHU_DF_MAIN
 int main()
 {
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(42); // Reproducible initial conditions.
     WarmDiskDF df;
 
     const int N_samples = 30000;
@@ -167,7 +161,7 @@ int main()
         return 1;
     }
 
-    DF << std::setprecision(6);
+    DF << std::setprecision(17);
     DF << "# R  L  v_R  v_phi   x  y\n";
     std::uniform_real_distribution<double> uniform_phi(0.0, 2.0 * M_PI); //generate random φ values for a specific R coordinate
 
@@ -176,7 +170,7 @@ int main()
         SampleOrbit orb = df.sample_orbit(gen);
         double phi = uniform_phi(gen);
         Cyl cyl_coords{orb.R, phi};
-        Vec2 pos = cylindrical_to_cartesian(cyl_coords);
+        Vec2 pos = cyl_to_cart(cyl_coords);
 
         DF << orb.R << " " << orb.L << " " << orb.v_R << " " << orb.v_phi <<  " "  << pos.x << " " << pos.y << "\n"; 
     }
@@ -185,6 +179,6 @@ int main()
     std::cout << "Generated " << N_samples << " orbits based on Shu Distribution Function\n";
     return 0;
 }
-  */  
+#endif
 
 

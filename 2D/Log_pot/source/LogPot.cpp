@@ -631,7 +631,7 @@ double getJRunperturbed(Vec2 pos0, Vec2 vel, double dt)
         Rnew = std::hypot(pos0.x, pos0.y);
         vnew = (pos0.x * vel.x + pos0.y * vel.y) / Rnew;
 
-        JRback += (Rnew - Rold) * 0.5 * (vnew + vmid);
+        JRback += (Rnew - Rmid) * 0.5 * (vnew + vmid);
     }
 
     // Continue to next extremum
@@ -641,7 +641,7 @@ double getJRunperturbed(Vec2 pos0, Vec2 vel, double dt)
     Rnew = std::hypot(pos0.x, pos0.y);
     vnew = (pos0.x * vel.x + pos0.y * vel.y) / Rnew;
 
-    JRback += (Rnew - Rold) * 0.5 * (vnew + vmid);
+    JRback += (Rnew - Rmid) * 0.5 * (vnew + vmid);
 
     while ((Rmid - Rold) * (Rnew - Rmid) > 0.0)
     {
@@ -651,7 +651,7 @@ double getJRunperturbed(Vec2 pos0, Vec2 vel, double dt)
         Rnew = std::hypot(pos0.x, pos0.y);
         vnew = (pos0.x * vel.x + pos0.y * vel.y) / Rnew;
 
-        JRback += (Rnew - Rold) * 0.5 * (vnew + vmid);
+        JRback += (Rnew - Rmid) * 0.5 * (vnew + vmid);
     }
 
     return JRback / (2.0 * M_PI); // J_R
