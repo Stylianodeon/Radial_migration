@@ -37,9 +37,9 @@ private:
     double R_min, R_max;
 
     // Disc model parameters
-    double R_o = 2.5;
-    double R_sigma = 3.0 * R_o;
-    double Sigma_o = 1.226e+9;
-    double sigma_o = 0.02;
-    double v_c = 0.22;
+    double R_o = 2.5;             // R₀: density scale length [kpc]
+    double R_sigma = 3.0 * R_o;   // R_σ: dispersion scale length [kpc]
+    double Sigma_o = 1.226e+9;    // Σ₀: surface-density normalization [Msun/kpc²]
+    double sigma_o = 0.02;        // σ₀: radial velocity-dispersion normalization [kpc/Myr]
+    double v_c = 0.22;           // v_c: circular speed [kpc/Myr]
 };
