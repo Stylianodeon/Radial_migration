@@ -1,7 +1,9 @@
 #include "LogPot.h"
+#include "EffectivePotential.h"
 
 #include <cmath>
 #include <fstream>
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -86,6 +88,7 @@ int main(int argc, char** argv)
     double x_min = -20.0, x_max = 20.0;
     double y_min = -20.0, y_max = 20.0;
     double step  = 0.1;
+    const double snapshot_time = 2500.0; // peak of ramp, shared by map and finder
 
     {
         std::ofstream fout("phi_eff.dat");
@@ -97,7 +100,6 @@ int main(int argc, char** argv)
 
         fout << "# x [kpc]\ty [kpc]\tPhi_eff(x,y)\n";
 
-        const double snapshot_time = 2500.0; // peak of ramp
         for (double y = y_min; y <= y_max; y += step)
         {
             for (double x = x_min; x <= x_max; x += step)
@@ -112,7 +114,15 @@ int main(int argc, char** argv)
 
     std::cout << "Wrote phi_eff.dat (perturbation " << (use_pert ? "on" : "off") << ")\n";
 
-    scan_Lagrange_points(x_min, x_max, y_min, y_max, step, "grad_phi_eff.dat", use_pert);
+    try
+    {
+        scan_Lagrange_points(x_min, x_max, y_min, y_max, step, "grad_phi_eff.dat", use_pert, snapshot_time);
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "Lagrange-point search failed: " << error.what() << '\n';
+        return 1;
+    }
     std::cout << "Wrote grad_phi_eff.dat and lagrange_points.dat\n";
 
     {

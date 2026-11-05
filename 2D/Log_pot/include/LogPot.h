@@ -1,6 +1,4 @@
 #pragma once
-#include <vector>
-#include <tuple>
 #include <string>
 #include "VecUtils.h"
 
@@ -23,10 +21,6 @@ extern double R_sp_taper;
 extern double n_sp_taper;
 
 // Function declarations
-double effective_potential(const Vec2&, const bool&);
-Vec2 effective_potential_gradient(const Vec2&, const bool&);
-bool is_near_cluster(const std::vector<std::tuple<double, double, double>>&, const std::tuple<double, double, double>&, double);
-void scan_Lagrange_points(double, double, double, double, double, const std::string&, bool);
 double perturbation_scaling_factor(double);
 double spiral_radial_envelope(double);
 double d_spiral_radial_envelope_dR(double);
@@ -40,16 +34,12 @@ double angular_momentum(const Vec2&, const Vec2&);
 double kinetic_energy(const Vec2&);
 Vec2 total_acceleration(const Vec2&, const double&);
 double jacobi_integral(const Vec2&, const Vec2&, const double&, const double&);
-double effective_potential_time(const Vec2&, const bool&, double);
-Vec2   effective_potential_gradient_time(const Vec2&, const bool&, double, double);
 
 
-void simulate_trajectory(Vec2& pos, Vec2& vel, const std::string& basename,
-                         double& total_time, double& dt, bool use_pert);
-void integrate_no_io(Vec2 pos, Vec2 vel, double total_time, double dt, bool use_pert,
-                     double& Lz0, double& Lz_end, double& JR0, double& JR_end,
-                     double& eR0, double& eR_end,
-                     Vec2* pos_end = nullptr, Vec2* vel_end = nullptr);
+void simulate_trajectory(Vec2& pos, Vec2& vel, const std::string& basename, double& total_time, double& dt, bool use_pert);
+
+void integrate_no_io(Vec2 pos, Vec2 vel, double total_time, double dt, bool use_pert, double& Lz0, double& Lz_end, double& JR0, double& JR_end,
+                     double& eR0, double& eR_end, Vec2* pos_end = nullptr, Vec2* vel_end = nullptr);
 
 int run_logpot_tools(int argc, char** argv);
 

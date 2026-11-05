@@ -7,9 +7,7 @@
 #include <vector>
 #include <string>
 #include <random>
-#include <algorithm>
 #include <sstream>
-#include <tuple>
 #include <functional>
 #include "VecUtils.h"
 #include "LogPot.h"
@@ -17,7 +15,6 @@
 using std::string;
 using std::vector;
 using std::ofstream;
-using GradCandidate = std::tuple<double, double, double>; // [x, y, gradient]
 using std::cos;
 using std::sin;
 using std::log;
@@ -69,128 +66,6 @@ double d_spiral_radial_envelope_dR(double R)
 
     const double W = spiral_radial_envelope(R);
     return (n_sp_taper / R) * W * (1.0 - W);
-}
-
-// Effective potential 
-double effective_potential(const Vec2 &cart_pos, const bool &use_pert)
-{
-    Cyl cyl_pos = cart_to_cyl(cart_pos);
-
-    // Axisymmetric log potential
-    double log_pot_energy = 0.5 * v_c * v_c * log(cart_pos.x * cart_pos.x + cart_pos.y * cart_pos.y);
-
-    // Optional spiral perturbation
-    double pert_energy = 0.0;
-    if (use_pert)
-    {
-        double kappa = alpha / cyl_pos.R;
-        double Sigma = Sigma_o * exp(-cyl_pos.R / R_o);
-        double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-        double W = spiral_radial_envelope(cyl_pos.R);
-
-        // constant Spiral-phase
-        pert_energy = (Phi_S * W * pert_strength) * cos((alpha * log(cyl_pos.R / R_CR)) - m * cyl_pos.phi);
-
-        // For a bar:
-        // pert_energy = (Phi_S * pert_strength) * cos(m * cyl_pos.phi);
-    }
-
-    // Phi_eff = Phi - 0.5 * omega_p^2 * R^2 (Binney & Tremaine, eq. 3.114).
-    double cent_term = 0.5 * omega_p * omega_p * (cyl_pos.R * cyl_pos.R);
-
-    return log_pot_energy + pert_energy - cent_term;
-}
-
-Vec2 effective_potential_gradient(const Vec2 &cart_pos, const bool &use_pert)
-{
-    double delta = 1e-8;
-
-    Vec2 dx_pos = {cart_pos.x + delta, cart_pos.y};
-    Vec2 dx_neg = {cart_pos.x - delta, cart_pos.y};
-    Vec2 dy_pos = {cart_pos.x, cart_pos.y + delta};
-    Vec2 dy_neg = {cart_pos.x, cart_pos.y - delta};
-
-    Vec2 grad;
-    grad.x = (effective_potential(dx_pos, use_pert) - effective_potential(dx_neg, use_pert)) / (2.0 * delta);
-    grad.y = (effective_potential(dy_pos, use_pert) - effective_potential(dy_neg, use_pert)) / (2.0 * delta);
-
-    return grad;
-}
-
-// Lagrange point identification
-bool is_near_cluster(const vector<GradCandidate>& cluster, const GradCandidate& point, double epsilon)
-{
-    for (const auto& c : cluster)
-    {
-        double dx = std::get<0>(c) - std::get<0>(point);
-        double dy = std::get<1>(c) - std::get<1>(point);
-        if (std::sqrt(dx * dx + dy * dy) < epsilon) return true;
-    }
-    return false;
-}
-
-void scan_Lagrange_points(double xmin, double xmax, double ymin, double ymax, double step, const string& filename, bool use_pert)
-{
-    std::ofstream fout(filename);
-    std::ofstream fout_lagrange("lagrange_points.dat");
-
-    fout << "# x\ty\t|∇Phi_eff|\n";
-    fout_lagrange << "# Lagrange points\n";
-
-    vector<GradCandidate> low_grad_points;
-    double threshold = 5e-5;
-    double epsilon   = 0.5; // clustering radius in kpc
-
-    // Find all gradients below the threshold
-    for (double y = ymin; y <= ymax; y += step)
-    {
-        for (double x = xmin; x <= xmax; x += step)
-        {
-            Vec2 pos = {x, y};
-            Vec2 grad = effective_potential_gradient(pos, use_pert);
-            double grad_mag = std::sqrt(grad.x * grad.x + grad.y * grad.y);
-
-            fout << x << " " << y << " " << grad_mag << "\n";
-
-            if (grad_mag < threshold)
-                low_grad_points.emplace_back(x, y, grad_mag);
-        }
-        fout << "\n";
-    }
-
-    // Sort by gradient magnitude
-    std::sort(low_grad_points.begin(), low_grad_points.end(), [](const GradCandidate& a, const GradCandidate& b)
-              { return std::get<2>(a) < std::get<2>(b); });
-
-    // Cluster
-    vector<vector<GradCandidate>> clusters;
-    for (const auto& pt : low_grad_points)
-    {
-        bool added = false;
-        for (auto& cluster : clusters)
-        {
-            if (is_near_cluster(cluster, pt, epsilon))
-            {
-                cluster.push_back(pt);
-                added = true;
-                break;
-            }
-        }
-        if (!added)
-            clusters.push_back({pt});
-    }
-
-    // Output one representative (min grad) per cluster
-    for (const auto& cluster : clusters)
-    {
-        auto min_point = *std::min_element(cluster.begin(), cluster.end(), [](const GradCandidate& a, const GradCandidate& b)
-            { return std::get<2>(a) < std::get<2>(b); });
-
-        fout_lagrange << std::get<0>(min_point) << " " << std::get<1>(min_point) << " " << std::get<2>(min_point) << "\n";
-    }
-
-    fout.close();
-    fout_lagrange.close();
 }
 
 double perturbation_scaling_factor(double sim_time)
@@ -398,47 +273,6 @@ double jacobi_integral(const Vec2 &cart_pos, const Vec2 &cart_vel, const double 
 
     // E_J = E - Ω_p Lz  (rotating-frame constant when Φ is steady in that frame)
     return KE + PE - (omega_p * Lz);
-}
-
-double effective_potential_time(const Vec2 &cart_pos, const bool &use_pert, double sim_time)
-{
-    Cyl cyl_pos = cart_to_cyl(cart_pos);
-
-    double log_pot_energy = 0.5 * v_c * v_c * log(cart_pos.x * cart_pos.x + cart_pos.y * cart_pos.y);
-
-    double pert_energy = 0.0;
-    if (use_pert && pert_strength != 0.0)
-    {
-        double kappa = alpha / cyl_pos.R;
-        double Sigma = Sigma_o * exp(-cyl_pos.R / R_o);
-        double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-        double W = spiral_radial_envelope(cyl_pos.R);
-        double scale = perturbation_scaling_factor(sim_time);
-
-        pert_energy = (Phi_S * W * pert_strength * scale) * cos((alpha * log(cyl_pos.R / R_CR)) + m * omega_p * sim_time - m * cyl_pos.phi);
-        // For a bar:
-        // pert_energy = (Phi_S * pert_strength * scale) * cos(m * omega_p * sim_time - m * cyl_pos.phi);
-    }
-
-    double cent_term = 0.5 * omega_p * omega_p * (cyl_pos.R * cyl_pos.R);
-
-    return log_pot_energy + pert_energy - cent_term;
-}
-
-Vec2 effective_potential_gradient_time(const Vec2 &cart_pos, const bool &use_pert, double sim_time, double total_time)
-{
-    double delta = 1e-8;
-
-    Vec2 dx_pos = {cart_pos.x + delta, cart_pos.y};
-    Vec2 dx_neg = {cart_pos.x - delta, cart_pos.y};
-    Vec2 dy_pos = {cart_pos.x, cart_pos.y + delta};
-    Vec2 dy_neg = {cart_pos.x, cart_pos.y - delta};
-
-    Vec2 grad;
-    grad.x = (effective_potential_time(dx_pos, use_pert, sim_time) - effective_potential_time(dx_neg, use_pert, sim_time)) / (2.0 * delta);
-    grad.y = (effective_potential_time(dy_pos, use_pert, sim_time) -  effective_potential_time(dy_neg, use_pert, sim_time)) / (2.0 * delta);
-              
-    return grad;
 }
 
 void simulate_trajectory(Vec2 &orbit_pos, Vec2 &orbit_vel, const std::string &basename, double &total_time, double &dt, bool use_pert)

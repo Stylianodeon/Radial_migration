@@ -58,6 +58,33 @@ For the logarithmic potential plus the spiral perturbation:
 
  The simulation results are stored in `sim_results.dat`.
 
+## Effective potential and Lagrange-points
+
+We calculate the effective potential as
+
+$$
+\Phi_{\mathrm{eff}} = \Phi_0 + \Phi_{\mathrm{spiral}} - \frac{1}{2}\Omega_p^2 R^2,
+$$
+
+where $\Phi_0$ is the logarithmic background potential. At each snapshot,
+Lagrange points satisfy $\nabla\Phi_{\mathrm{eff}}=0$: we solve the radial equation by bisection and calculate the corresponding angles analytically.
+
+To reproduce the animation, run from `2D/`:
+
+```bash
+cmake -B build
+cmake --build build --target LagrangeSnapshotsExec
+./build/bin/LagrangeSnapshotsExec build/lagrange_snapshots
+python3 plots/animate_lagrange.py build/lagrange_snapshots
+```
+The animation is reproduced from snapshots taken every 10Myr.
+
+Python libraries required: Matplotlib, NumPy, and Pillow.
+
+
+The GIF is saved as `2D/build/lagrange_snapshots/lagrange_motion.gif`.
+It shows the instantaneous equilibria in inertial and rotating coordinates
+from 1900 to 3100 Myr.
 
 ## G 3D results with gnuplot
 
