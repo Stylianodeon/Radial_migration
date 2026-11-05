@@ -1,4 +1,5 @@
 #include "LogPot.h"
+#include "SpiralPerturbation.h"
 #include "EffectivePotential.h"
 
 #include <cmath>
@@ -60,14 +61,8 @@ int main(int argc, char** argv)
             continue;
         }
 
-        double kappa = alpha / cyl.R;
-        double Sigma = Sigma_o * std::exp(-cyl.R / R_o);
-        double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-        double W = spiral_radial_envelope(cyl.R);
-
         double scale = perturbation_scaling_factor(t);
-
-        double phi_pert  = (Phi_S * W * pert_strength * scale) * cos(alpha * log(cyl.R / R_CR) + m * omega_p * t - m * cyl.phi);
+        double phi_pert = spiral_potential(cyl, t, scale);
 
         double phi_total = 0.5 * v_c * v_c * std::log(cyl.R * cyl.R) + phi_pert;
 

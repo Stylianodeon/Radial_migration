@@ -21,9 +21,6 @@ extern double R_sp_taper;
 extern double n_sp_taper;
 
 // Function declarations
-double perturbation_scaling_factor(double);
-double spiral_radial_envelope(double);
-double d_spiral_radial_envelope_dR(double);
 double total_potential_energy(const Vec2&, const double&);
 double potential_energy_unperturbed(const Vec2&);
 double total_PE_time(const Vec2&, const double&);
@@ -33,6 +30,8 @@ void Leapfrog_integrator_perturbed(Vec2&, Vec2&, const double&, const double&);
 double angular_momentum(const Vec2&, const Vec2&);
 double kinetic_energy(const Vec2&);
 Vec2 total_acceleration(const Vec2&, const double&);
+// E_J = E - omega_p * Lz, including when the spiral amplitude is zero.
+// Conserved only while the potential is steady in the rotating frame.
 double jacobi_integral(const Vec2&, const Vec2&, const double&, const double&);
 
 

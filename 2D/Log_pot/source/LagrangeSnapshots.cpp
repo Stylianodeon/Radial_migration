@@ -1,5 +1,6 @@
 #include "EffectivePotential.h"
 #include "LogPot.h"
+#include "SpiralPerturbation.h"
 
 #include <cmath>
 #include <filesystem>

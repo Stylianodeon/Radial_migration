@@ -14,10 +14,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 # Find OpenMP and MPI
 find_package(OpenMP REQUIRED)
 find_package(MPI REQUIRED)
-find_package(Catch2 3 REQUIRED)
-
-include(CTest)
-
 # Set include directory and add source directory
 add_subdirectory(Log_pot)
 add_subdirectory(VecUtils)

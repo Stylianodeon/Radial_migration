@@ -1,5 +1,6 @@
 #include "EffectivePotential.h"
 #include "LogPot.h"
+#include "SpiralPerturbation.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,8 +9,6 @@
 #include <limits>
 #include <stdexcept>
 
-using std::cos;
-using std::exp;
 using std::log;
 using std::string;
 
@@ -17,31 +16,15 @@ using std::string;
 static constexpr double minimum_radius = 1e-6; // The logarithmic model is singular at R=0. Exclude this central region (kpc)
 
 
-static void spiral_amplitude(double R, double scale, double& A, double& dA)
-{
-    const double PhiS = (2.0 * M_PI * G * e_s * Sigma_o * std::exp(-R / R_o)) / (alpha / R);
-    const double W = spiral_radial_envelope(R);
-
-    A = pert_strength * scale * PhiS * W;
-    dA = pert_strength * scale * PhiS * ((1.0 / R - 1.0 / R_o) * W + d_spiral_radial_envelope_dR(R));
-
-}
-
 static Vec2 effective_gradient(const Vec2& pos, bool use_pert, double time, double scale)
 {
     const double R = std::hypot(pos.x, pos.y);
 
-    double dR = v_c * v_c / R - omega_p * omega_p * R;
-    double dphi = 0.0;
+    const double radial = v_c * v_c / R - omega_p * omega_p * R;
+    Vec2 gradient{radial * pos.x / R, radial * pos.y / R};
     if (use_pert && pert_strength != 0.0 && scale != 0.0)
-    {
-        double A, dA;
-        spiral_amplitude(R, scale, A, dA);
-        const double phase = alpha * std::log(R / R_CR) + m * omega_p * time - m * std::atan2(pos.y, pos.x);
-        dR += dA * std::cos(phase) - A * std::sin(phase) * alpha / R;
-        dphi = m * A * std::sin(phase) / R;
-    }
-    return {(dR * pos.x - dphi * pos.y) / R, (dR * pos.y + dphi * pos.x) / R};
+        gradient = gradient + spiral_gradient(pos, time, scale);
+    return gradient;
 }
 
 static double radial_equilibrium(double R, double sign, double scale)
@@ -86,16 +69,7 @@ double effective_potential(const Vec2 &cart_pos, const bool &use_pert)
     double pert_energy = 0.0;
     if (use_pert)
     {
-        double kappa = alpha / cyl_pos.R;
-        double Sigma = Sigma_o * exp(-cyl_pos.R / R_o);
-        double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-        double W = spiral_radial_envelope(cyl_pos.R);
-
-        // constant Spiral-phase
-        pert_energy = (Phi_S * W * pert_strength) * cos((alpha * log(cyl_pos.R / R_CR)) - m * cyl_pos.phi);
-
-        // For a bar:
-        // pert_energy = (Phi_S * pert_strength) * cos(m * cyl_pos.phi);
+        pert_energy = spiral_potential(cyl_pos, 0.0, 1.0);
     }
 
     // Phi_eff = Phi - 0.5 * omega_p^2 * R^2 (Binney & Tremaine, eq. 3.114).
@@ -186,7 +160,7 @@ void scan_Lagrange_points(double xmin, double xmax, double ymin, double ymax, do
                 for (int arm = 0; arm < static_cast<int>(m); ++arm)
                 {
                     const int n = 2 * arm + parity;
-                    const double phi = (alpha * std::log(root / R_CR) - n * M_PI) / m + omega_p * sim_time;
+                    const double phi = (spiral_phase(root, 0.0, sim_time) - n * M_PI) / m;
 
                     const Vec2 pos{root * std::cos(phi), root * std::sin(phi)};
                     if (pos.x < xmin || pos.x > xmax || pos.y < ymin || pos.y > ymax)
@@ -219,15 +193,7 @@ double effective_potential_time(const Vec2 &cart_pos, const bool &use_pert, doub
     double pert_energy = 0.0;
     if (use_pert && pert_strength != 0.0)
     {
-        double kappa = alpha / cyl_pos.R;
-        double Sigma = Sigma_o * exp(-cyl_pos.R / R_o);
-        double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-        double W = spiral_radial_envelope(cyl_pos.R);
-        double scale = perturbation_scaling_factor(sim_time);
-
-        pert_energy = (Phi_S * W * pert_strength * scale) * cos((alpha * log(cyl_pos.R / R_CR)) + m * omega_p * sim_time - m * cyl_pos.phi);
-        // For a bar:
-        // pert_energy = (Phi_S * pert_strength * scale) * cos(m * omega_p * sim_time - m * cyl_pos.phi);
+        pert_energy = spiral_potential(cyl_pos, sim_time, perturbation_scaling_factor(sim_time));
     }
 
     double cent_term = 0.5 * omega_p * omega_p * (cyl_pos.R * cyl_pos.R);

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <iomanip>
@@ -11,6 +12,7 @@
 #include <functional>
 #include "VecUtils.h"
 #include "LogPot.h"
+#include "SpiralPerturbation.h"
 
 using std::string;
 using std::vector;
@@ -46,80 +48,13 @@ inline double guiding_radius_from_L(double Lz)
 }
 
 
-double spiral_radial_envelope(double R)
-{
-    if (R_sp_taper <= 0.0)
-        return 1.0;
-
-    if (R <= 0.0)
-        return 0.0;
-
-    const double q  = R / R_sp_taper;
-    const double qn = std::pow(q, n_sp_taper);
-    return qn / (1.0 + qn);
-}
-
-double d_spiral_radial_envelope_dR(double R)
-{
-    if (R_sp_taper <= 0.0 || R <= 1e-12)
-        return 0.0;
-
-    const double W = spiral_radial_envelope(R);
-    return (n_sp_taper / R) * W * (1.0 - W);
-}
-
-double perturbation_scaling_factor(double sim_time)
-{
-    //Variables for perturbation profiless
-    double t_start  = 2000.0;
-    double dur_up   = 500.0;
-    double dur_hold = 0.0;
-    double dur_down = 500.0;
-    double t_up_end   = t_start + dur_up;
-    double t_hold_end = t_up_end + dur_hold;
-    double t_down_end = t_hold_end + dur_down;
-
-    if (sim_time < t_start)
-        return 0.0;
-
-    // Ramp up
-    if (dur_up > 0.0 && sim_time < t_up_end)
-        return (sim_time - t_start) / dur_up;
-
-    // Immediate drop if dur_up == 0
-    if (dur_up == 0.0 && sim_time < t_hold_end)
-        return 1.0;
-
-    // Hold
-    if (sim_time < t_hold_end)
-        return 1.0;
-
-    // Ramp down
-    if (dur_down > 0.0 && sim_time < t_down_end)
-        return (t_down_end - sim_time) / dur_down;
-    
-    return 0.0;
-}
-
 // Energies (inertial and rotating-frame effective)
 // Not used during ramping version
 double total_potential_energy(const Vec2 &cart_pos, const double &sim_time)
 {
     Cyl cyl_pos = cart_to_cyl(cart_pos);
 
-    double log_pot_energy = 0.5 * v_c * v_c * log(cart_pos.x * cart_pos.x + cart_pos.y * cart_pos.y);
-
-    double kappa = alpha / cyl_pos.R;
-    double Sigma = Sigma_o * exp(-cyl_pos.R / R_o);
-    double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-    double W = spiral_radial_envelope(cyl_pos.R);
-
-    double pert_energy = (Phi_S * W * pert_strength) * cos(alpha * log(cyl_pos.R / R_CR) + m * omega_p * sim_time - m * cyl_pos.phi);
-
-    // For a bar:
-    // double pert_energy = (Phi_S * pert_strength) * cos(m*omega_p*sim_time + m * cyl_pos.phi);
-
-    return log_pot_energy + pert_energy;
+    return potential_energy_unperturbed(cart_pos) + spiral_potential(cyl_pos, sim_time, 1.0);
 }
 
 double potential_energy_unperturbed(const Vec2 &pos)
@@ -135,21 +70,8 @@ double total_PE_time(const Vec2 &cart_pos, const double &sim_time)
 
     Cyl cyl_pos = cart_to_cyl(cart_pos);
 
-    double log_pot_energy = 0.5 * v_c * v_c * log(cart_pos.x * cart_pos.x + cart_pos.y * cart_pos.y);
-
-    double kappa = alpha / cyl_pos.R;
-    double Sigma = Sigma_o * exp(-cyl_pos.R / R_o);
-    double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-    double W = spiral_radial_envelope(cyl_pos.R);
-
-    double scale = perturbation_scaling_factor(sim_time);
-
-    double pert_energy = (Phi_S * W * pert_strength * scale) * cos(alpha * log(cyl_pos.R / R_CR) + m * omega_p * sim_time - m * cyl_pos.phi);
-
-    // For a bar:
-    // double pert_energy = (Phi_S * pert_strength * scale) * cos(m * omega_p * sim_time - m * cyl_pos.phi);
-
-    return log_pot_energy + pert_energy;
+    return potential_energy_unperturbed(cart_pos)
+         + spiral_potential(cyl_pos, sim_time, perturbation_scaling_factor(sim_time));
 }
 
 // Axisymmetric logarithmic potential acceleration
@@ -182,53 +104,13 @@ Vec2 total_acceleration(const Vec2 &cart_pos, const double &sim_time)
     if (pert_strength == 0.0)
         return LogPot_acc(cart_pos);
 
-    double x = cart_pos.x;
-    double y = cart_pos.y;
-
-    double R_squared = x*x + y*y;
-    double R  = std::sqrt(R_squared);
-    double phi = std::atan2(y, x);
-
-    //Guard against R -> 0 
-    if (R < 1e-12)
+    // Guard against R -> 0.
+    if (std::hypot(cart_pos.x, cart_pos.y) < 1e-12)
         return {0.0, 0.0};
 
-    double dPhi0_dR = (v_c * v_c) / R;
-
-    double Sigma = Sigma_o * std::exp(-R / R_o);
-    double kappa = alpha / R;
-    double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-
-    //Find the amplitude(A) of the perturbation
-    double scale = perturbation_scaling_factor(sim_time);
-
-    double W    = spiral_radial_envelope(R);
-    double dW_dR = d_spiral_radial_envelope_dR(R);
-
-    double pert_Amplitude = Phi_S * W * pert_strength * scale;
-
-    //ψ = alpha ln(R/R_CR) + m ω_p t - mφ
-    double psi = alpha * std::log(R / R_CR) + m * omega_p * sim_time - m * phi;
-
-    double cpsi = cos(psi);
-    double spsi = sin(psi);
-
-    // d/dR [Phi_S(R) * W(R) * pert_strength * scale]
-    // Phi_S ∝ R exp(-R/R_o), so dPhi_S/dR = Phi_S * (1/R - 1/R_o).
-    double dPhiS_dR = Phi_S * (1.0/R - 1.0/R_o);
-    double dA_dR = pert_strength * scale * (dPhiS_dR * W + Phi_S * dW_dR);
-
-    double dpsi_dR   = alpha / R;
-    double dpsi_dphi = -m;
-
-    double dPhi_dR   = dPhi0_dR + dA_dR * cpsi - pert_Amplitude * spsi * dpsi_dR;
-    double dPhi_dphi = m * pert_Amplitude * spsi; 
-
-    double dPhi_dx = dPhi_dR * (x / R) + dPhi_dphi * (-y / R_squared);
-    double dPhi_dy = dPhi_dR * (y / R) + dPhi_dphi * ( x / R_squared);
-
-    //Acceleration=-∇Φ
-    return { -dPhi_dx, -dPhi_dy };
+    // Acceleration = -gradient(Phi).
+    return LogPot_acc(cart_pos)
+         - spiral_gradient(cart_pos, sim_time, perturbation_scaling_factor(sim_time));
 }
 
 
@@ -260,13 +142,6 @@ double kinetic_energy(const Vec2 &vel)
 
 double jacobi_integral(const Vec2 &cart_pos, const Vec2 &cart_vel, const double &sim_time, const double &total_time)
 {
-    if (pert_strength == 0.0)
-    {
-        double KE = kinetic_energy(cart_vel);
-        double PE = potential_energy_unperturbed(cart_pos);
-        return KE + PE;
-    }
-
     double KE = kinetic_energy(cart_vel);
     double PE = total_PE_time(cart_pos, sim_time);
     double Lz = angular_momentum(cart_pos, cart_vel);
@@ -294,7 +169,7 @@ void simulate_trajectory(Vec2 &orbit_pos, Vec2 &orbit_vel, const std::string &ba
     rot_file        << "# t\tx_rot\ty_rot\n";
 
     int steps = static_cast<int>(total_time / dt);
-    int print_interval = steps / 10;
+    int print_interval = std::max(1, steps / 10);
 
     for (int i = 0; i <= steps; i++)
     {
@@ -312,7 +187,8 @@ void simulate_trajectory(Vec2 &orbit_pos, Vec2 &orbit_vel, const std::string &ba
         double PE = perturb_active ? total_PE_time(orbit_pos, sim_time) : potential_energy_unperturbed(orbit_pos);
 
         double E  = KE + PE;
-        double EJ = perturb_active ? jacobi_integral(orbit_pos, orbit_vel, sim_time, total_time) : E;
+        // Use the same rotating-frame diagnostic before, during, and after the ramp.
+        double EJ = E - omega_p * Lz;
         double R_L = Lz / v_c;
 
         // Rotating frame position
@@ -337,6 +213,10 @@ void simulate_trajectory(Vec2 &orbit_pos, Vec2 &orbit_vel, const std::string &ba
             std::cout << std::fixed << std::setprecision(6);
             std::cout << "[Orbit: " << basename << "] t = " << sim_time << " | L_z = " << Lz << " | E = " << E << " | E_J = " << EJ << "\n";
         }
+
+        // The final row describes the returned state; do not advance past it.
+        if (i == steps)
+            break;
 
         if (perturb_active)
             Leapfrog_integrator_perturbed(orbit_pos, orbit_vel, dt, sim_time);
@@ -396,17 +276,7 @@ void map_potential_ratios(double xmin, double xmax, double ymin, double ymax, do
 
             double phi_log = 0.5 * v_c * v_c * std::log(pos.x * pos.x + pos.y * pos.y);
 
-            double kappa = alpha / cyl_pos.R;
-            double Sigma = Sigma_o * std::exp(-cyl_pos.R / R_o);
-            double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-            double W = spiral_radial_envelope(cyl_pos.R);
-
-            double scale = perturbation_scaling_factor(sim_time);
-
-            double phi_pert = (Phi_S * W * pert_strength * scale) * std::cos(alpha * std::log(cyl_pos.R / R_CR) + m * omega_p * sim_time - m * cyl_pos.phi);
-
-            // For a bar:
-            // double phi_pert = (Phi_S * pert_strength * scale) * std::cos(m * cyl_pos.phi);
+            double phi_pert = spiral_potential(cyl_pos, sim_time, perturbation_scaling_factor(sim_time));
 
             double phi_tot = phi_log + phi_pert;
             double ratio = (std::abs(phi_tot) > 1e-12) ? std::abs(phi_pert) / std::abs(phi_tot) : 0.0;
