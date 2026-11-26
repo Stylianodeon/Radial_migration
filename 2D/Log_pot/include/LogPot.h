@@ -27,67 +27,9 @@ double total_PE_time(const Vec2&, const double&);
 Vec2 LogPot_acc(const Vec2&);
 void Leapfrog_integrator_unperturbed(Vec2&, Vec2&, const double&);
 void Leapfrog_integrator_perturbed(Vec2&, Vec2&, const double&, const double&);
-double angular_momentum(const Vec2&, const Vec2&);
-double kinetic_energy(const Vec2&);
 Vec2 total_acceleration(const Vec2&, const double&);
-// E_J = E - omega_p * Lz, including when the spiral amplitude is zero.
-// Conserved only while the potential is steady in the rotating frame.
-double jacobi_integral(const Vec2&, const Vec2&, const double&, const double&);
-
 
 void simulate_trajectory(Vec2& pos, Vec2& vel, const std::string& basename, double& total_time, double& dt, bool use_pert);
 
 void integrate_no_io(Vec2 pos, Vec2 vel, double total_time, double dt, bool use_pert, double& Lz0, double& Lz_end, double& JR0, double& JR_end,
                      double& eR0, double& eR_end, Vec2* pos_end = nullptr, Vec2* vel_end = nullptr);
-
-int run_logpot_tools(int argc, char** argv);
-
-
-
-/*
-
-//Adding a perturbation with constant pattern speed
-// Calculate accelerations using formula acceleration = - ∇Φ0 - ∇Φ1 - coriolis - centtrifugal force 
-Vec3 coriolis_acceleration(const Vec3& cart_vel)
-{
-    Vec3 omega_p_cart = { 0.0, 0.0, omega_p};
-    Vec3 coriolis_acc = cross_product(omega_p_cart, cart_vel);
-
-    return coriolis_acc * -2.0;
-}
-
-Vec3 centrifugal_acceleration(const Vec3 &cart_pos)
-{
-    Vec3 omega_p_cart = { 0.0, 0.0, omega_p};
-    Vec3 intermediate = cross_product(omega_p_cart, cart_pos);
-    Vec3 centrifugal_acc = cross_product(omega_p_cart, intermediate);
-    return centrifugal_acc * -1.0 ;
-}
-
-
-Vec3 perturbation_acceleration(const Vec3 &cart_pos)
-{   
-    Cyl cyl_pos = cartesian_to_cylindrical(cart_pos);
-    //Determine the potential amplitude and its derivative from Daniel & Wyse (2015) eqn. 37
-
-    double kappa = alpha / cyl_pos.R;
-    double Sigma = Sigma_o * exp(-cyl_pos.R/R_o);
-    double Phi_S = (2.0 * M_PI * G * e_s * Sigma) / kappa;
-    double dPhi_S_dR = (2.0 * M_PI * G * e_s * Sigma * (cyl_pos.R-R_o)) / (R_o * m * (1.0/tan(theta)));
-
-    //Determine partial derivatives of potential perturbation Φ1 in the rotating fram give from Dnaiel & Wyse (2015) eqn. 6
-    double dPhi_dR = dPhi_S_dR * cos(m * cyl_pos.phi);
-    double dPhi_dphi = -m * Phi_S * sin(m * cyl_pos.phi);
-    //Determine derivatives for chain rule
-    double dR_dx = cart_pos.x / cyl_pos.R;
-    double dR_dy = cart_pos.y / cyl_pos.R;
-    double dphi_dx = -cart_pos.y/(cyl_pos.R * cyl_pos.R);
-    double dphi_dy = cart_pos.x /(cyl_pos.R * cyl_pos.R);
-    //Calculate potential in cartesian coordinates
-    double dPhi_dx = (dPhi_dR * dR_dx) + (dPhi_dphi * dphi_dx);
-    double dPhi_dy = (dPhi_dR * dR_dy) + (dPhi_dphi * dphi_dy);
-
-    return {0.0, 0.0, 0.0};      //{ -dPhi_dx, -dPhi_dy, 0.0 };
-}
-
-*/
